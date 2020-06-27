@@ -123,6 +123,14 @@ let upstream =
 
 let overrides = {=}
 
-let additions = {=}
+let additions =
+{
+    quickcheck-utf8 =
+    {
+        version = "master",
+        repo = "https://github.com/openchronology/purescript-quickcheck-utf8.git",
+        dependencies = ["quickcheck"]
+    }
+}
 
 in  upstream // overrides // additions
