@@ -15,7 +15,9 @@ import Data.Traversable (class Traversable)
 import Data.TraversableWithIndex (class TraversableWithIndex)
 import Data.Unfoldable (class Unfoldable)
 import Foreign.Object (Object)
-import Foreign.Object (lookup, insert, empty, union, filterKeys, toUnfoldable) as Object
+import Foreign.Object
+  ( lookup, insert, empty, union, filterKeys, toUnfoldable
+  , member, mapWithKey) as Object
 import Partial.Unsafe (unsafePartial)
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (arrayOf)
@@ -129,6 +131,26 @@ filterWithKey f (IxArray {contents, orderOfKeys}) = IxArray
       , orderOfKeys: Array.filter (\k -> Array.elem k toDelete) orderOfKeys
       }
 
+-- | Only keeps updated and new values, new values are appended
+intoFrom :: forall a b. (a -> b -> a) -> (b -> a) -> IxArray a -> IxArray b -> IxArray a
+intoFrom updateValue from (IxArray existing) (IxArray additional) = IxArray
+  { contents:
+    let newAdditions = Object.filterKeys (\k -> not (Object.member k existing.contents)) additional.contents
+        toBeUpdated = Object.filterKeys (\k -> Object.member k additional.contents) existing.contents
+        updated =
+          let go k existingVal =
+                let additionalVal = unsafePartial $ case Object.lookup k additional.contents of
+                      Just v -> v
+                in  updateValue existingVal additionalVal
+          in  Object.mapWithKey go toBeUpdated
+    in  Object.union (map from newAdditions) updated
+  , orderOfKeys:
+    let updated = Array.filter (\k -> Array.elem k additional.orderOfKeys) existing.orderOfKeys
+        newAdditions = Array.filter (\k -> not (Array.elem k existing.orderOfKeys)) additional.orderOfKeys
+    in  updated <> newAdditions
+  }
+
+
 toUnfoldable :: forall a f. Unfoldable f => IxArray a -> f (Tuple String a)
 toUnfoldable = Array.toUnfoldable <<< toArray
 
@@ -233,6 +255,18 @@ index i xs@(IxArray {orderOfKeys}) = case Array.index orderOfKeys i of
   Just key -> case lookup key xs of
     Nothing -> Nothing
     Just value -> Just {key,value}
+
+-- | Modify a value while preserving ordering
+update :: forall a. String -> a -> IxArray a -> Maybe (IxArray a)
+update k a (IxArray {orderOfKeys, contents}) = case Object.lookup k contents of
+  Nothing -> Nothing
+  Just _ -> Just (IxArray {orderOfKeys, contents: Object.insert k a contents})
+
+-- | Fail silently
+update' :: forall a. String -> a -> IxArray a -> IxArray a
+update' k a xs = case update k a xs of
+  Nothing -> xs
+  Just ys -> ys
 
 sortKeysBy :: forall a. (String -> String -> Ordering) -> IxArray a -> IxArray a
 sortKeysBy f (IxArray x) = IxArray x {orderOfKeys = Array.sortBy f x.orderOfKeys}
